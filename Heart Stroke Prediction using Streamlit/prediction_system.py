@@ -6,9 +6,12 @@ import os
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from imblearn.over_sampling import SMOTE
-
 
 def stroke_prediction_app(df):
 
@@ -43,12 +46,45 @@ def stroke_prediction_app(df):
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    # Train Model
-    logistic_model = LogisticRegression(random_state=3, max_iter=1000, class_weight='balanced')
-    logistic_model.fit(X_train, y_train)
+    # **Model Selection**
+    st.sidebar.header("🔍 Choose Model for Training")
+    model_choice = st.sidebar.selectbox(
+        "Select Model",
+        ("Logistic Regression", "Random Forest", "XGBoost", "SVM", "KNN", "Auto-Select Best Model")
+    )
+
+    # Define Models
+    models = {
+        "Logistic Regression": LogisticRegression(random_state=3, max_iter=1000, class_weight='balanced'),
+        "Random Forest": RandomForestClassifier(n_estimators=100, random_state=3),
+        "XGBoost": XGBClassifier(use_label_encoder=False, eval_metric='logloss'),
+        "SVM": SVC(probability=True, random_state=3),
+        "KNN": KNeighborsClassifier(n_neighbors=5)
+    }
+
+    # If user selects "Auto-Select Best Model"
+    if model_choice == "Auto-Select Best Model":
+        best_model_name = None
+        best_accuracy = 0
+        best_model = None
+
+        for name, model in models.items():
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            acc = accuracy_score(y_test, y_pred)
+
+            if acc > best_accuracy:
+                best_accuracy = acc
+                best_model = model
+                best_model_name = name
+
+        st.sidebar.write(f"✅ Best Model: **{best_model_name}** (Accuracy: {best_accuracy:.4f})")
+    else:
+        best_model = models[model_choice]
+        best_model.fit(X_train, y_train)
 
     # Save Model & Scaler
-    joblib.dump(logistic_model, "stroke_model.pkl")
+    joblib.dump(best_model, "stroke_model.pkl")
     joblib.dump(scaler, "scaler.pkl")
 
     # **User Input for Prediction**
@@ -69,33 +105,17 @@ def stroke_prediction_app(df):
     ever_married_encoded = 1 if ever_married == "Yes" else 0
 
     # Encoding work_type
-    if work_type == "Private":
-        work_type_encoded = 0
-    elif work_type == "Self-employed":
-        work_type_encoded = 1
-    elif work_type == "Govt_job":
-        work_type_encoded = 2
-    elif work_type == "Children":
-        work_type_encoded = 3
-    else:  # "Never_worked"
-        work_type_encoded = 4
+    work_type_encoded = {"Private": 0, "Self-employed": 1, "Govt_job": 2, "Children": 3, "Never_worked": 4}[work_type]
 
     # Encoding residence_type
     residence_type_encoded = 1 if residence_type == "Urban" else 0
 
     # Encoding smoking_status
-    if smoking_status == "Never smoked":
-        smoking_status_encoded = 0
-    elif smoking_status == "Formerly smoked":
-        smoking_status_encoded = 1
-    elif smoking_status == "Smokes":
-        smoking_status_encoded = 2
-    else:  # "Unknown"
-        smoking_status_encoded = 3
-
+    smoking_status_encoded = {"Never smoked": 0, "Formerly smoked": 1, "Smokes": 2, "Unknown": 3}[smoking_status]
 
     # Create user input array
-    user_data = np.array([gender_encoded, age, hypertension, heart_disease, ever_married_encoded, work_type_encoded, residence_type_encoded, avg_glucose_level, bmi, smoking_status_encoded]).reshape(1, -1)
+    user_data = np.array([gender_encoded, age, hypertension, heart_disease, ever_married_encoded, 
+                           work_type_encoded, residence_type_encoded, avg_glucose_level, bmi, smoking_status_encoded]).reshape(1, -1)
 
     if st.button("Predict Stroke Risk"):
         if os.path.exists("stroke_model.pkl") and os.path.exists("scaler.pkl"):
@@ -112,8 +132,8 @@ def stroke_prediction_app(df):
             # Display Results
             st.subheader("Prediction Results:")
             if prediction == 1:
-                st.error(f"High Risk of Stroke! Probability: {probability:.2f}")
+                st.error(f"⚠️ High Risk of Stroke! Probability: {probability:.2f}")
             else:
-                st.success(f"Low Risk of Stroke. Probability: {probability:.2f}")
+                st.success(f"✅ Low Risk of Stroke. Probability: {probability:.2f}")
         else:
             st.warning("Model and Scaler files not found! Train the model first.")
